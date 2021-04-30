@@ -317,8 +317,8 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
       spec[i].setMZ(spec[i].getMZ() * z - (z - 1) * Constants::PROTON_MASS_U);
     }
     select_idx.push_back(i);
-
   }
+
   // properly subsets all datapoints (incl. dataArrays)
   spec.select(select_idx);
   spec.sortByPosition();
@@ -508,8 +508,8 @@ void Deisotoper::deisotopeAndSingleCharge(MSSpectrum& spec,
       spec[i].setMZ(spec[i].getMZ() * z - (z - 1) * Constants::PROTON_MASS_U);
     }
     select_idx.push_back(i);
-
   }
+
   // properly subsets all datapoints (incl. dataArrays)
   spec.select(select_idx);
   spec.sortByPosition();
