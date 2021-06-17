@@ -119,9 +119,15 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
   int feature_number = 0;
 
   std::vector<size_t> extensions;
-  std::vector< std::vector<size_t> > clusters;
+  std::vector<std::vector<size_t>> clusters;
   std::vector<int> charges_of_extensions;
-  const float averagine_check_threshold[5] = { 0.05f,0.1f,0.2f,0.4f,0.6f };
+  std::vector<int> KL_of_extensions;
+  const float averagine_check_threshold[5] = {0.05f, 0.1f, 0.2f, 0.4f, 0.6f};
+
+  std::vector<std::vector<size_t>> best_clusters;
+  std::vector<double> best_clusters_KL;
+  std::vector<int> charges_of_best_clusters;
+
 
   bool has_precursor_data(false);
   double precursor_mass(0);
@@ -173,6 +179,7 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
 
       float total_weight = old_spectrum[current_peak].getIntensity() * (old_spectrum[current_peak].getMZ() * q - (q - 1) * Constants::PROTON_MASS_U);
       float total_intensity = old_spectrum[current_peak].getIntensity();
+      float current_KL = 0.0;
       for (unsigned int i = 1; i < max_isopeaks; ++i)
       {
         const double expected_mz = current_mz + static_cast<double>(i) * Constants::C13C12_MASSDIFF_U / static_cast<double>(q);
@@ -220,13 +227,14 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
               curr_threshold = (extensions.size() + 1 > 6) ? averagine_check_threshold[4] : averagine_check_threshold[extensions.size() - 1];
             }
 
-
             // compare to threshold and stop extension if distribution does not fit well enough
             if (KL > curr_threshold)
             {
               has_min_isopeaks = (i >= min_isopeaks);
               break;
             }
+            
+            current_KL = KL;
           }
           // after model checks passed:
           extensions.push_back(p);
@@ -241,8 +249,10 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
       {
         clusters.push_back(extensions);
         charges_of_extensions.push_back(q);
+        KL_of_extensions.push_back(current_KL);
       }
     } // all charges tested, clusters complete
+
     // if current_peak is possible monoisotopic peak for a cluster, pick the best of its clusters, annotate peaks with a feature number
     if (!clusters.empty())
     {
@@ -259,19 +269,38 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
           best_idx = i;
         }
       }
-      mono_isotopic_peak[current_peak] = charges_of_extensions[best_idx];
-      for (unsigned int i = 0; i != clusters[best_idx].size(); ++i)
-      {
-        features[clusters[best_idx][i]] = feature_number;
-        // monoisotopic peak intensity is already set above, add up the other intensities here
-        if (add_up_intensity && (i != 0))
-        {
-          mono_iso_peak_intensity[current_peak] += old_spectrum[clusters[best_idx][i]].getIntensity();
-        }
-      }
-      ++feature_number;
+
+      // save results
+      best_clusters.push_back(clusters[best_idx]);
+      best_clusters_KL.push_back(KL_of_extensions[best_idx]);
+      charges_of_best_clusters.push_back(charges_of_extensions[best_idx]);
     }
   }
+
+  // of all clusters found: of those conflicting, choose the one with best KL
+  for (unsigned int i = 0; i < best_clusters.size(); ++i)
+  {
+    best_clusters[i];
+    best_clusters_KL.push_back(KL_of_extensions[best_idx]);
+    charges_of_best_clusters.push_back(charges_of_extensions[best_idx]);
+  }
+
+  //for (size_t current_peak = 0; current_peak != old_spectrum.size(); ++current_peak)
+  {
+    // this probably goes to POINT
+    mono_isotopic_peak[current_peak] = charges_of_extensions[best_idx];
+    for (unsigned int i = 0; i != clusters[best_idx].size(); ++i)
+    {
+      features[clusters[best_idx][i]] = feature_number;
+      // monoisotopic peak intensity is already set above, add up the other intensities here
+      if (add_up_intensity && (i != 0))
+      {
+        mono_iso_peak_intensity[current_peak] += old_spectrum[clusters[best_idx][i]].getIntensity();
+      }
+    }
+    ++feature_number;
+  }
+
 
   // apply changes, i.e. select the indices which should survive
   std::vector<Size> select_idx;

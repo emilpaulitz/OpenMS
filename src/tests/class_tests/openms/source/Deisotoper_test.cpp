@@ -292,6 +292,46 @@ START_SECTION(static void deisotopeAndSingleChargeMSSpectrum(MSSpectrum& in,
 }
 END_SECTION
 
++ START_SECTION(BENCHMARKING)
+{
+  // ****** BENCHMARKING ****** //
+  // Generate spectra for benchmarking
+  // Generate spectrum deisotoped by original algorithm
+
+  String path = "C:/Users/emilp/Documents/Projekte/HiWi/data/SSE_Benchmarking/";
+
+  MzMLFile file;
+  PeakMap exp;
+  std::cerr << "start loading spectra\n";
+  file.load(path + "B1.mzML", exp);
+  unsigned int count = 0;
+  Size num_spectra = exp.size();
+
+  /*
+  for (auto it = exp.begin(); it != exp.end(); ++it)
+  {
+    std::cerr << "Starting old algorithm on spectrum " << (String) count++ << " of " << (String) num_spectra << "\n ";
+    Deisotoper::deisotopeAndSingleCharge(*it, 10.0, true, 1, 3, true);
+  }
+  std::cerr << "start storing deisotoped spectra\n";
+  file.store(path + "out_onlyDeisotoped_old.mzML", exp);
+
+  count = 0;
+  exp.clear(true);
+  std::cerr << "start loading spectra again\n";
+  file.load(path + "B1.mzML", exp);
+  */
+
+  // Generate spectrum deisotoped by new algorithm
+  for (auto it = exp.begin(); it != exp.end(); ++it)
+  {
+    std::cerr << "Starting new algorithm on spectrum " << (String) count++ << " of " << (String) num_spectra << "\n";
+    Deisotoper::deisotopeWithAveragineModel(*it, 10.0, true);
+  }
+  std::cerr << "storing spectra\n";
+  file.store(path + "out_spectra_generation.mzML", exp);
+}
+END_SECTION
 
 /////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////
