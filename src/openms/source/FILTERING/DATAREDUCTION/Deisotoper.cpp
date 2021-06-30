@@ -76,7 +76,7 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
   // discard low-intensity peaks
   if (rem_low_intensity)
   { 
-    Size max_num_peaks = used_for_open_search ? 1000 : 5000;
+    UInt max_num_peaks = used_for_open_search ? 1000 : 5000;
 
     // remove 0 intensity peaks
     ThresholdMower threshold_mower_filter;
@@ -111,18 +111,12 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
   // during discovery phase, work on a constant reference (just to make sure we do not modify spec)
   const MSSpectrum& old_spectrum = spec;
 
-  // determine charge seeds and extend them
-  std::vector<size_t> mono_isotopic_peak(old_spectrum.size(), 0);
-  std::vector<int> features(old_spectrum.size(), -1);
-  std::vector<double> mono_iso_peak_intensity(old_spectrum.size(), 0);
-  std::vector<Size> iso_peak_count(old_spectrum.size(), 1);
-  int feature_number = 0;
-
   std::vector<size_t> extensions;
   std::vector<std::vector<size_t>> clusters;
   std::vector<int> charges_of_extensions;
   std::vector<int> KL_of_extensions;
-  const float averagine_check_threshold[5] = {0.05f, 0.1f, 0.2f, 0.4f, 0.6f};
+  // threshold for the averagine check with i peaks is in averagine_check_threshold[i] (0 and 1 peak are not checked)
+  const float averagine_check_threshold[7] = {0.0f, 0.0f, 0.05f, 0.1f, 0.2f, 0.4f, 0.6f};
 
   std::vector<std::vector<size_t>> best_clusters;
   std::vector<double> best_clusters_KL;
@@ -140,18 +134,10 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
 
   for (size_t current_peak = 0; current_peak != old_spectrum.size(); ++current_peak)
   {
-    // only process peaks which are not already in a cluster. Would form clusters identical to the cluster they are assigned to,
-    // excluding its first peak(s), since peaks with lower mz are not considered for cluster-formation.
-    if (features[current_peak] != -1) continue;
-
     // Monoisotopic peaks with intensity 0.0 interfere with averagine check when normalizing the spectrum peaks height
     if (use_averagine_model && !rem_low_intensity && old_spectrum[current_peak].getIntensity() == 0.0) continue;
 
     const double current_mz = old_spectrum[current_peak].getMZ();
-    if (add_up_intensity)
-    {
-      mono_iso_peak_intensity[current_peak] = old_spectrum[current_peak].getIntensity();
-    }
     clusters.clear();
     charges_of_extensions.clear();
     for (int q = max_charge; q >= min_charge; --q) // important: test charge hypothesis from high to low
@@ -223,8 +209,8 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
                 KL += Px * log(Px / distr[extensions.size()].getIntensity());
               }
 
-              // choose threshold corresponding to cluster size
-              curr_threshold = (extensions.size() + 1 > 6) ? averagine_check_threshold[4] : averagine_check_threshold[extensions.size() - 1];
+              // choose threshold corresponding to cluster size (extensions do not include new peak yet)
+              curr_threshold = (extensions.size() + 1 >= 6) ? averagine_check_threshold[6] : averagine_check_threshold[extensions.size() + 1];
             }
 
             // compare to threshold and stop extension if distribution does not fit well enough
@@ -238,10 +224,6 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
           }
           // after model checks passed:
           extensions.push_back(p);
-          if (annotate_iso_peak_count)
-          {
-            iso_peak_count[current_peak] = i + 1;// with "+ 1" the monoisotopic peak is counted as well
-          }
         }
       }
 
@@ -276,39 +258,101 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
       charges_of_best_clusters.push_back(charges_of_extensions[best_idx]);
     }
   }
-
-  // of all clusters found: of those conflicting, choose the one with best KL
-  for (unsigned int i = 0; i < best_clusters.size(); ++i)
+  
+  // of all clusters found: of those conflicting, put the ones with not the best KL on a blacklist
+  Size curr_cluster = 0;
+  std::vector<Size> clusters_not_to_keep;
+  for (auto it = best_clusters.cbegin(); it != best_clusters.cend(); ++it, ++curr_cluster)
   {
-    best_clusters[i];
-    best_clusters_KL.push_back(KL_of_extensions[best_idx]);
-    charges_of_best_clusters.push_back(charges_of_extensions[best_idx]);
-  }
-
-  //for (size_t current_peak = 0; current_peak != old_spectrum.size(); ++current_peak)
-  {
-    // this probably goes to POINT
-    mono_isotopic_peak[current_peak] = charges_of_extensions[best_idx];
-    for (unsigned int i = 0; i != clusters[best_idx].size(); ++i)
+    // only treat current cluster if it is not already on the blacklist
+    bool on_blacklist = false;
+    for (auto rit = clusters_not_to_keep.rbegin(); rit != clusters_not_to_keep.rend() && *rit > curr_cluster; ++rit)
     {
-      features[clusters[best_idx][i]] = feature_number;
-      // monoisotopic peak intensity is already set above, add up the other intensities here
-      if (add_up_intensity && (i != 0))
+      if (*rit == curr_cluster)
       {
-        mono_iso_peak_intensity[current_peak] += old_spectrum[clusters[best_idx][i]].getIntensity();
+        on_blacklist = true;
+        break;
       }
     }
-    ++feature_number;
+    if (on_blacklist) continue;
+
+    // determine all clusters that have an overlap with the current cluster
+    Size last_peak = it->back();
+    std::vector<Size> curr_overlaps;
+    for (Size temp_idx = curr_cluster + 1; temp_idx < best_clusters.size() && last_peak > best_clusters[temp_idx].front(); ++temp_idx)
+    {
+      curr_overlaps.push_back(temp_idx);
+    }
+
+    // if there is no overlap, nothing to do
+    if (curr_overlaps.empty()) continue;
+
+    // determine if current clusters KL is the one with highest difference to its threshold
+    double curr_KL_dist = ((it->size() >= 6) ? averagine_check_threshold[6] : averagine_check_threshold[it->size()]) - best_clusters_KL[curr_cluster];
+    bool curr_is_best = true;
+    for (Size overlap_clusters_idx : curr_overlaps)
+    {
+      double temp_KL_dist = ((best_clusters[overlap_clusters_idx].size() >= 6) ? averagine_check_threshold[6] : averagine_check_threshold[best_clusters[overlap_clusters_idx].size()]) - best_clusters_KL[overlap_clusters_idx];
+      if (temp_KL_dist > curr_KL_dist)
+      {
+        curr_is_best = false;
+        break;
+      }
+    }
+
+    // put either the current cluster or all overlaps on the blacklist
+    if (curr_is_best)
+    {
+      for (Size overlap_clusters_idx : curr_overlaps)
+      {
+        clusters_not_to_keep.push_back(overlap_clusters_idx);
+      }
+    }
+    else
+    {
+      clusters_not_to_keep.push_back(curr_cluster);
+    }
   }
 
+  int feature_number = 0;
+  std::vector<Size> mono_isotopic_peak_charge(old_spectrum.size(), 0);
+  std::vector<int> features(old_spectrum.size(), -1);
+  std::vector<double> mono_iso_peak_intensity(old_spectrum.size(), 0);
+  std::vector<Size> iso_peak_count(old_spectrum.size(), 1);
+
+  for (Size curr_cluster = 0; curr_cluster < best_clusters.size(); ++curr_cluster)
+  {
+    // is curr_cluster on the blacklist?
+    if (std::find(clusters_not_to_keep.begin(), clusters_not_to_keep.end(), curr_cluster) != clusters_not_to_keep.end()) continue;
+
+    Size current_monoisotopic_peak = best_clusters[curr_cluster].front();
+    mono_isotopic_peak_charge[current_monoisotopic_peak] = charges_of_best_clusters[curr_cluster];
+
+    for (auto peak_it = best_clusters[curr_cluster].begin(); peak_it != best_clusters[curr_cluster].end(); ++peak_it)
+    {
+      features[*peak_it] = feature_number;
+      if (add_up_intensity)
+      {
+        mono_iso_peak_intensity[*peak_it] += old_spectrum[*peak_it].getIntensity();
+      }
+    }
+
+    if (annotate_iso_peak_count)
+    {
+      iso_peak_count[current_monoisotopic_peak] = best_clusters[curr_cluster].size();
+    }
+
+    ++feature_number;
+  }
+  
 
   // apply changes, i.e. select the indices which should survive
   std::vector<Size> select_idx;
 
-  for (size_t i = 0; i != spec.size(); ++i)
+  for (Size i = 0; i != spec.size(); ++i)
   {
 
-    Size z = mono_isotopic_peak[i];
+    Size z = mono_isotopic_peak_charge[i];
     if (annotate_charge)
     {
       spec.getIntegerDataArrays()[charge_index].push_back((int)z);
