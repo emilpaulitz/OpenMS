@@ -121,7 +121,7 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
   std::vector<size_t> extensions;
   std::vector< std::vector<size_t> > clusters;
   std::vector<int> charges_of_extensions;
-  const float averagine_check_threshold[5] = { 0.05f,0.1f,0.2f,0.4f,0.6f };
+  const float averagine_check_threshold[7] = { 0.0f, 0.0f, 0.05f, 0.1f, 0.2f, 0.4f, 0.6f };
 
   bool has_precursor_data(false);
   double precursor_mass(0);
@@ -158,6 +158,10 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
       bool has_min_isopeaks = true;
       const double tolerance_dalton = fragment_unit_ppm ? Math::ppmToMass(fragment_tolerance, current_mz) : fragment_tolerance;
 
+      // generate averagine distribution
+      CoarseIsotopePatternGenerator gen(max_isopeaks);
+      IsotopeDistribution distr = gen.estimateFromPeptideWeight(old_spectrum[current_peak].getMZ() * q - (q - 1) * Constants::PROTON_MASS_U);
+
       // do not bother testing charges q (and masses m) with: m/q > precursor_mass/q (or m > precursor_mass)
       if (has_precursor_data)
       {
@@ -171,69 +175,96 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
       extensions.clear();
       extensions.push_back(current_peak);
 
-      float total_weight = old_spectrum[current_peak].getIntensity() * (old_spectrum[current_peak].getMZ() * q - (q - 1) * Constants::PROTON_MASS_U);
-      float total_intensity = old_spectrum[current_peak].getIntensity();
+      // needed for normalization
+      double total_intensity = old_spectrum[current_peak].getIntensity();
+      double theoretical_sum = distr[0].getIntensity();
+
       for (unsigned int i = 1; i < max_isopeaks; ++i)
       {
         const double expected_mz = current_mz + static_cast<double>(i) * Constants::C13C12_MASSDIFF_U / static_cast<double>(q);
-        const int p = old_spectrum.findNearest(expected_mz, tolerance_dalton);
-        if (p == -1)// test for missing peak
+
+        float curr_threshold = (extensions.size() + 1 >= 6) ? averagine_check_threshold[6] : averagine_check_threshold[extensions.size() + 1];
+        theoretical_sum += distr[i].getIntensity();
+
+        std::vector<int> candidates;
+        std::vector<float> KL_of_candidates;
+
+        // first index that is just before the required window
+        int p = old_spectrum.findNearest(expected_mz, tolerance_dalton);
+
+        if (p == -1)
         {
           has_min_isopeaks = (i >= min_isopeaks);
           break;
         }
-        else
-        {
-          // compare to averagine distribution
-          if (use_averagine_model)
-          {
-            // compute average weight (weighted by intensity)
-            total_weight += old_spectrum[p].getIntensity() * (old_spectrum[p].getMZ() * q - (q - 1) * Constants::PROTON_MASS_U);
-            total_intensity += old_spectrum[p].getIntensity();
 
-            // generate averagine distribution
-            CoarseIsotopePatternGenerator gen(extensions.size() + 1);
-            IsotopeDistribution distr = gen.estimateFromPeptideWeight(total_weight / total_intensity);
+        while (p > 0 &&  old_spectrum[p].getMZ() >= expected_mz - tolerance_dalton)
+        {
+          p--;
+        }
+
+        for (; old_spectrum[p].getMZ() <= expected_mz + tolerance_dalton; ++p)
+        {
+          if (old_spectrum[p].getMZ() >= expected_mz - tolerance_dalton)
+          {
+            candidates.push_back(p);
+
+            // compare to averagine distribution
+            float KL = 0;
+
+            // normalize spectrum intensities as this is a density measure and the averagine distribution is also normalized to 1
+            double current_correction_factor = theoretical_sum / (total_intensity + old_spectrum[p].getIntensity());
 
             // compute KL divergence (Sum over all x: P(x) * log(P(x) / Q(x));
-            // normalize spectrum intensities as this is a density measure and the averagine distribution is also normalized to 1
-            float KL = 0;
             for (unsigned int peak = 0; peak != extensions.size(); ++peak)
             {
-              double Px = old_spectrum[extensions[peak]].getIntensity() / total_intensity;
+              double Px = old_spectrum[extensions[peak]].getIntensity() * current_correction_factor;
               if (Px != 0.0)// Term converges to 0 for P(x) -> 0
               {
                 KL += Px * log(Px / distr[peak].getIntensity());
               }
             }
-            float curr_threshold = -1;
-            if (distr.size() > extensions.size())
-            {
-              // also consider current peak
-              double Px = old_spectrum[p].getIntensity() / total_intensity;
-              if (Px != 0.0)
-              {
-                KL += Px * log(Px / distr[extensions.size()].getIntensity());
-              }
 
-              // choose threshold corresponding to cluster size
-              curr_threshold = (extensions.size() + 1 > 6) ? averagine_check_threshold[4] : averagine_check_threshold[extensions.size() - 1];
+            // also consider current peak
+            double Px = old_spectrum[p].getIntensity() * current_correction_factor;
+            if (Px != 0.0)
+            {
+              KL += Px * log(Px / distr[extensions.size()].getIntensity());
             }
 
-
-            // compare to threshold and stop extension if distribution does not fit well enough
-            if (KL > curr_threshold)
+            if (rem_low_intensity && !KL_of_candidates.empty())
             {
-              has_min_isopeaks = (i >= min_isopeaks);
-              break;
+              std::cout << "First KL: " << KL_of_candidates[0] << ", current KL: " << KL << ", curr p: " << p << "curr int: " << old_spectrum[p].getIntensity() << " curr corr: " << current_correction_factor << "\n\n";
             }
+            KL_of_candidates.push_back(KL);
           }
-          // after model checks passed:
-          extensions.push_back(p);
-          if (annotate_iso_peak_count)
+        }
+
+        // else find best fitting peak
+        float best_KL = KL_of_candidates[0];
+        Int best_p = candidates[0];
+        for (Int i = 1; i < KL_of_candidates.size(); ++i)
+        {
+          if (KL_of_candidates[i] < best_KL)
           {
-            iso_peak_count[current_peak] = i + 1;// with "+ 1" the monoisotopic peak is counted as well
+            best_KL = KL_of_candidates[i];
+            best_p = candidates[i];
           }
+        }
+
+        if (best_KL > curr_threshold)
+        {
+          has_min_isopeaks = (i >= min_isopeaks);
+          break;
+        }
+
+        // after model checks passed:
+        extensions.push_back(best_p);
+        total_intensity += old_spectrum[best_p].getIntensity();
+
+        if (annotate_iso_peak_count)
+        {
+          iso_peak_count[current_peak] = i + 1;// with "+ 1" the monoisotopic peak is counted as well
         }
       }
 
