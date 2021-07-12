@@ -310,56 +310,14 @@ START_SECTION(static void deisotopeWithAveragineModel(MSSpectrum& spectrum,
   theo1 = exp.getSpectrum(0);// for next test
   Size ori_size = theo.size();
   Deisotoper::deisotopeWithAveragineModel(theo, 10.0, true, true, 1, 3, true, 2, 10, true, true, true);// keep only deisotoped
+  exp.clear(true);
+  exp.addSpectrum(theo);
+  String path = "C:/Users/emilp/Documents/Projekte/HiWi/data/SSE_Benchmarking/";
+  file.store(path + "test_out_abc.mzML", exp);
   TEST_NOT_EQUAL(theo.size(), ori_size);
   file.load(OPENMS_GET_TEST_DATA_PATH("Deisotoper_test_out.mzML"), exp);
   TEST_EQUAL(theo, exp.getSpectrum(0));
   TEST_EQUAL(theo.size(), exp.getSpectrum(0).size());
-
-  // spectra comparison
-  MSSpectrum theoOld = exp.getSpectrum(0);
-  MSSpectrum theoNew = theo;
-  std::cout << "old algo spec size: " << theoOld.size() << "\n";
-  std::cout << "new algo spec size: " << theoNew.size() << "\n";
-
-  std::cout << "peaks exclusive to old algo:\n";
-  Int count = 0;
-  for (auto it = theoOld.begin(); it != theoOld.end(); ++it)
-  {
-    double diff = theoNew[theoNew.findNearest(it->getMZ())].getMZ() - it->getMZ();
-
-    if (diff > 0.001 || diff < -0.001)
-    {
-      if (it->getIntensity() == 0)
-      {
-        count++;
-      }
-      else
-      {
-        std::cout << *it << "\n";
-      }
-    }
-  }
-  std::cout << "zero intensity peaks: " << count << "\n";
-  std::cout << "----------------------------------------------------\n\n\n";
-
-  std::cout << "peaks exclusive to new algo:\n";
-  count = 0;
-  for (int i = 0; i < theoNew.size(); ++i)
-  {
-    double diff = theoOld[theoOld.findNearest(theoNew[i].getMZ())].getMZ() - theoNew[i].getMZ();
-    if (diff > 0.001 || diff < -0.001)
-    {
-      if (theoNew[i].getIntensity() == 0)
-      {
-        count++;
-      }
-      else
-      {
-        std::cout << theoNew[i]<< "\n" << "charge: " << theoNew.getIntegerDataArrays().back()[i] << "\n";
-      }
-    }
-  }
-  std::cout << "zero intensity peaks: " << count << "\n";
 
   // Test if the algorithm also works if we do not remove the low (and zero) intensity peaks
   Deisotoper::deisotopeWithAveragineModel(theo1, 10.0, true, false, 1, 3, true);// do not remove low intensity peaks beforehand, but keep only deisotoped
@@ -367,6 +325,38 @@ START_SECTION(static void deisotopeWithAveragineModel(MSSpectrum& spectrum,
 }
 END_SECTION
 
+START_SECTION(BENCHMARKING)
+{
+  // ****** BENCHMARKING ****** //
+  // Generate spectra for benchmarking
+  // Generate spectrum deisotoped by original algorithm
+
+  String path = "C:/Users/emilp/Documents/Projekte/HiWi/data/SSE_Benchmarking/";
+  String str1 = "Starting new algorithm on spectrum ";
+  String str2 = " of ";
+  String lb = "\n";
+
+  MzMLFile file;
+  PeakMap exp;
+  std::cerr << "start loading spectra\n";
+  unsigned int count = 0;
+  file.load(path + "B1.mzML", exp);
+  Size num_spectra = exp.size();
+  std::cerr << "finished loading spectra\n";
+  // Generate spectrum deisotoped by new algorithm
+  for (auto it = exp.begin(); it != exp.end(); ++it)
+  {
+    if (count % 50 == 1)
+    {
+      std::cerr << str1 << (String) count << str2 << (String) num_spectra << lb;
+    }
+    Deisotoper::deisotopeWithAveragineModel(*it, 10.0, true, true, 1, 3, false);
+    count++;
+  }
+  file.store(path + "out_best_nearest_peak.mzML", exp);
+  TEST_NOT_EQUAL(exp.size(), 0);
+}
+END_SECTION
 
 /////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////

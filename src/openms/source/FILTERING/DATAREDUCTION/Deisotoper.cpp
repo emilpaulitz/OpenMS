@@ -61,291 +61,296 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
   bool add_up_intensity,
   bool used_for_open_search)
 {
-  OPENMS_PRECONDITION(spec.isSorted(), "Spectrum must be sorted.");
-
-  if (min_isopeaks < 2 || max_isopeaks < 2 || min_isopeaks > max_isopeaks)
   {
-    throw Exception::IllegalArgument(__FILE__,
-      __LINE__,
-      OPENMS_PRETTY_FUNCTION,
-      "Minimum/maximum number of isotopic peaks must be at least 2 (and min_isopeaks <= max_isopeaks).");
-  }
+    OPENMS_PRECONDITION(spec.isSorted(), "Spectrum must be sorted.");
 
-  if (spec.empty()) { return; }
-
-  // discard low-intensity peaks
-  if (rem_low_intensity)
-  { 
-    Size max_num_peaks = used_for_open_search ? 1000 : 5000;
-
-    // remove 0 intensity peaks
-    ThresholdMower threshold_mower_filter;
-    threshold_mower_filter.filterPeakSpectrum(spec);
-
-    // only keep max_num_peaks highest peaks
-    NLargest nlargest_filter = NLargest(max_num_peaks);
-    nlargest_filter.filterPeakSpectrum(spec);
-    
-    spec.sortByPosition();
-  }
-
-  Size charge_index(0);
-  Size iso_peak_count_index(0);
-
-  // reserve integer data array to store charge of peaks
-  if (annotate_charge)
-  {
-    // expand to hold one additional integer data array to hold the charge
-    spec.getIntegerDataArrays().resize(spec.getIntegerDataArrays().size() + 1);
-    spec.getIntegerDataArrays().back().setName("charge");
-    charge_index = spec.getIntegerDataArrays().size() - 1;
-  }
-  // reserve integer data array to store number of isotopic peaks for each isotopic pattern
-  if (annotate_iso_peak_count)
-  {
-    spec.getIntegerDataArrays().resize(spec.getIntegerDataArrays().size() + 1);
-    spec.getIntegerDataArrays().back().setName("iso_peak_count");
-    iso_peak_count_index = spec.getIntegerDataArrays().size() - 1;
-  }
-
-  // during discovery phase, work on a constant reference (just to make sure we do not modify spec)
-  const MSSpectrum& old_spectrum = spec;
-
-  // determine charge seeds and extend them
-  std::vector<size_t> mono_isotopic_peak(old_spectrum.size(), 0);
-  std::vector<int> features(old_spectrum.size(), -1);
-  std::vector<double> mono_iso_peak_intensity(old_spectrum.size(), 0);
-  std::vector<Size> iso_peak_count(old_spectrum.size(), 1);
-  int feature_number = 0;
-
-  std::vector<size_t> extensions;
-  std::vector< std::vector<size_t> > clusters;
-  std::vector<int> charges_of_extensions;
-  const float averagine_check_threshold[7] = { 0.0f, 0.0f, 0.05f, 0.1f, 0.2f, 0.4f, 0.6f };
-
-  bool has_precursor_data(false);
-  double precursor_mass(0);
-  if (old_spectrum.getPrecursors().size() == 1)
-  {
-    has_precursor_data = true;
-    int precursor_charge = old_spectrum.getPrecursors()[0].getCharge();
-    precursor_mass = (old_spectrum.getPrecursors()[0].getMZ() * precursor_charge) - (Constants::PROTON_MASS * precursor_charge);
-  }
-
-  for (size_t current_peak = 0; current_peak != old_spectrum.size(); ++current_peak)
-  {
-    // only process peaks which are not already in a cluster. Would form clusters identical to the cluster they are assigned to,
-    // excluding its first peak(s), since peaks with lower mz are not considered for cluster-formation.
-    if (features[current_peak] != -1) continue;
-
-    // Monoisotopic peaks with intensity 0.0 interfere with averagine check when normalizing the spectrum peaks height
-    if (use_averagine_model && !rem_low_intensity && old_spectrum[current_peak].getIntensity() == 0.0) continue;
-
-    const double current_mz = old_spectrum[current_peak].getMZ();
-    if (add_up_intensity)
+    if (min_isopeaks < 2 || max_isopeaks < 2 || min_isopeaks > max_isopeaks)
     {
-      mono_iso_peak_intensity[current_peak] = old_spectrum[current_peak].getIntensity();
+      throw Exception::IllegalArgument(__FILE__,
+                                       __LINE__,
+                                       OPENMS_PRETTY_FUNCTION,
+                                       "Minimum/maximum number of isotopic peaks must be at least 2 (and min_isopeaks <= max_isopeaks).");
     }
-    clusters.clear();
-    charges_of_extensions.clear();
-    for (int q = max_charge; q >= min_charge; --q) // important: test charge hypothesis from high to low
-    {      
-      // try to extend isotopes from mono-isotopic peak
-      // if appropriate extension larger than min_isopeaks possible:
-      //   - save charge q in mono_isotopic_peak[]
-      //   - annotate_charge all isotopic peaks with feature number
 
-      bool has_min_isopeaks = true;
-      const double tolerance_dalton = fragment_unit_ppm ? Math::ppmToMass(fragment_tolerance, current_mz) : fragment_tolerance;
+    if (spec.empty())
+    {
+      return;
+    }
 
-      // generate averagine distribution
-      CoarseIsotopePatternGenerator gen(max_isopeaks);
-      IsotopeDistribution distr = gen.estimateFromPeptideWeight(old_spectrum[current_peak].getMZ() * q - (q - 1) * Constants::PROTON_MASS_U);
+    // discard low-intensity peaks
+    if (rem_low_intensity)
+    {
+      Size max_num_peaks = used_for_open_search ? 1000 : 5000;
 
-      // do not bother testing charges q (and masses m) with: m/q > precursor_mass/q (or m > precursor_mass)
-      if (has_precursor_data)
+      // remove 0 intensity peaks
+      ThresholdMower threshold_mower_filter;
+      threshold_mower_filter.filterPeakSpectrum(spec);
+
+      // only keep max_num_peaks highest peaks
+      NLargest nlargest_filter = NLargest(max_num_peaks);
+      nlargest_filter.filterPeakSpectrum(spec);
+
+      spec.sortByPosition();
+    }
+
+    Size charge_index(0);
+    Size iso_peak_count_index(0);
+
+    // reserve integer data array to store charge of peaks
+    if (annotate_charge)
+    {
+      // expand to hold one additional integer data array to hold the charge
+      spec.getIntegerDataArrays().resize(spec.getIntegerDataArrays().size() + 1);
+      spec.getIntegerDataArrays().back().setName("charge");
+      charge_index = spec.getIntegerDataArrays().size() - 1;
+    }
+    // reserve integer data array to store number of isotopic peaks for each isotopic pattern
+    if (annotate_iso_peak_count)
+    {
+      spec.getIntegerDataArrays().resize(spec.getIntegerDataArrays().size() + 1);
+      spec.getIntegerDataArrays().back().setName("iso_peak_count");
+      iso_peak_count_index = spec.getIntegerDataArrays().size() - 1;
+    }
+
+    // during discovery phase, work on a constant reference (just to make sure we do not modify spec)
+    const MSSpectrum& old_spectrum = spec;
+
+    // determine charge seeds and extend them
+    std::vector<size_t> mono_isotopic_peak(old_spectrum.size(), 0);
+    std::vector<int> features(old_spectrum.size(), -1);
+    std::vector<double> mono_iso_peak_intensity(old_spectrum.size(), 0);
+    std::vector<Size> iso_peak_count(old_spectrum.size(), 1);
+    int feature_number = 0;
+
+    std::vector<size_t> extensions;
+    std::vector<std::vector<size_t>> clusters;
+    std::vector<int> charges_of_extensions;
+    const float averagine_check_threshold[7] = {0.0f, 0.0f, 0.05f, 0.1f, 0.2f, 0.4f, 0.6f};
+    CoarseIsotopePatternGenerator gen(max_isopeaks);
+
+    bool has_precursor_data(false);
+    double precursor_mass(0);
+    if (old_spectrum.getPrecursors().size() == 1)
+    {
+      has_precursor_data = true;
+      int precursor_charge = old_spectrum.getPrecursors()[0].getCharge();
+      precursor_mass = (old_spectrum.getPrecursors()[0].getMZ() * precursor_charge) - (Constants::PROTON_MASS * precursor_charge);
+    }
+
+    for (size_t current_peak = 0; current_peak != old_spectrum.size(); ++current_peak)
+    {
+      // only process peaks which are not already in a cluster. Would form clusters identical to the cluster they are assigned to,
+      // excluding its first peak(s), since peaks with lower mz are not considered for cluster-formation.
+      if (features[current_peak] != -1)
+        continue;
+
+      // Monoisotopic peaks with intensity 0.0 interfere with averagine check when normalizing the spectrum peaks height
+      if (use_averagine_model && !rem_low_intensity && old_spectrum[current_peak].getIntensity() == 0.0)
+        continue;
+
+      const double current_mz = old_spectrum[current_peak].getMZ();
+      if (add_up_intensity)
       {
-        double current_theo_mass = (current_mz * q) - (Constants::PROTON_MASS * q);
-        if (current_theo_mass > (precursor_mass + tolerance_dalton))
-        {
-          continue;
-        }
+        mono_iso_peak_intensity[current_peak] = old_spectrum[current_peak].getIntensity();
       }
-
-      extensions.clear();
-      extensions.push_back(current_peak);
-
-      // needed for normalization
-      double total_intensity = old_spectrum[current_peak].getIntensity();
-      double theoretical_sum = distr[0].getIntensity();
-
-      for (unsigned int i = 1; i < max_isopeaks; ++i)
+      clusters.clear();
+      charges_of_extensions.clear();
+      for (int q = max_charge; q >= min_charge; --q)// important: test charge hypothesis from high to low
       {
-        const double expected_mz = current_mz + static_cast<double>(i) * Constants::C13C12_MASSDIFF_U / static_cast<double>(q);
+        // try to extend isotopes from mono-isotopic peak
+        // if appropriate extension larger than min_isopeaks possible:
+        //   - save charge q in mono_isotopic_peak[]
+        //   - annotate_charge all isotopic peaks with feature number
 
-        float curr_threshold = (extensions.size() + 1 >= 6) ? averagine_check_threshold[6] : averagine_check_threshold[extensions.size() + 1];
-        theoretical_sum += distr[i].getIntensity();
+        bool has_min_isopeaks = true;
+        const double tolerance_dalton = fragment_unit_ppm ? Math::ppmToMass(fragment_tolerance, current_mz) : fragment_tolerance;
 
-        std::vector<int> candidates;
-        std::vector<float> KL_of_candidates;
+        // generate averagine distribution
+        IsotopeDistribution distr = gen.estimateFromPeptideWeight(old_spectrum[current_peak].getMZ() * q - (q - 1) * Constants::PROTON_MASS_U);
 
-        // first index that is just before the required window
-        int p = old_spectrum.findNearest(expected_mz, tolerance_dalton);
-
-        if (p == -1)
+        // do not bother testing charges q (and masses m) with: m/q > precursor_mass/q (or m > precursor_mass)
+        if (has_precursor_data)
         {
-          has_min_isopeaks = (i >= min_isopeaks);
-          break;
-        }
-
-        while (p > 0 &&  old_spectrum[p].getMZ() >= expected_mz - tolerance_dalton)
-        {
-          p--;
-        }
-
-        for (; old_spectrum[p].getMZ() <= expected_mz + tolerance_dalton; ++p)
-        {
-          if (old_spectrum[p].getMZ() >= expected_mz - tolerance_dalton)
+          double current_theo_mass = (current_mz * q) - (Constants::PROTON_MASS * q);
+          if (current_theo_mass > (precursor_mass + tolerance_dalton))
           {
-            candidates.push_back(p);
+            continue;
+          }
+        }
 
-            // compare to averagine distribution
-            float KL = 0;
+        extensions.clear();
+        extensions.push_back(current_peak);
 
-            // normalize spectrum intensities as this is a density measure and the averagine distribution is also normalized to 1
-            double current_correction_factor = theoretical_sum / (total_intensity + old_spectrum[p].getIntensity());
+        // needed for normalization
+        double total_intensity = old_spectrum[current_peak].getIntensity();
+        double theoretical_sum = distr[0].getIntensity();
 
-            // compute KL divergence (Sum over all x: P(x) * log(P(x) / Q(x));
-            for (unsigned int peak = 0; peak != extensions.size(); ++peak)
+        for (unsigned int i = 1; i < max_isopeaks; ++i)
+        {
+          const double expected_mz = current_mz + static_cast<double>(i) * Constants::C13C12_MASSDIFF_U / static_cast<double>(q);
+
+          float curr_threshold = (extensions.size() + 1 >= 6) ? averagine_check_threshold[6] : averagine_check_threshold[extensions.size() + 1];
+          theoretical_sum += distr[i].getIntensity();
+
+          int p = old_spectrum.findNearest(expected_mz, tolerance_dalton);
+
+          if (p == -1)// if there is no peak in the tolerance window at all
+          {
+            has_min_isopeaks = (i >= min_isopeaks);
+            break;
+          }
+
+          // find first index that is just before the required window
+          while (p > 0 && old_spectrum[p].getMZ() >= expected_mz - tolerance_dalton)
+          {
+            p--;
+          }
+          
+          // find best fitting peak
+          float best_KL = 1.0f;
+          Int best_p;
+
+          for (; old_spectrum[p].getMZ() <= expected_mz + tolerance_dalton; ++p)
+          {
+            if (old_spectrum[p].getMZ() >= expected_mz - tolerance_dalton)
             {
-              double Px = old_spectrum[extensions[peak]].getIntensity() * current_correction_factor;
-              if (Px != 0.0)// Term converges to 0 for P(x) -> 0
+              // compare to averagine distribution
+              float KL = 0.0f;
+
+              // normalize spectrum intensities as this is a density measure and the averagine distribution is also normalized to 1
+              double current_correction_factor = theoretical_sum / (total_intensity + old_spectrum[p].getIntensity());
+
+              // compute KL divergence (Sum over all x: P(x) * log(P(x) / Q(x));
+              for (unsigned int peak = 0; peak != extensions.size(); ++peak)
               {
-                KL += Px * log(Px / distr[peak].getIntensity());
+                double Px = old_spectrum[extensions[peak]].getIntensity() * current_correction_factor;
+                if (Px != 0.0)// Term converges to 0 for P(x) -> 0
+                {
+                  KL += Px * log(Px / distr[peak].getIntensity());
+                }
               }
-            }
 
-            // also consider current peak
-            double Px = old_spectrum[p].getIntensity() * current_correction_factor;
-            if (Px != 0.0)
-            {
-              KL += Px * log(Px / distr[extensions.size()].getIntensity());
-            }
-
+              // also consider current peak
+              double Px = old_spectrum[p].getIntensity() * current_correction_factor;
+              if (Px != 0.0)
+              {
+                KL += Px * log(Px / distr[extensions.size()].getIntensity());
+              }
+              /*
+            // print if there are actually multiple peaks with intensity greater 0 in the tolerance window
             if (rem_low_intensity && !KL_of_candidates.empty())
             {
               std::cout << "First KL: " << KL_of_candidates[0] << ", current KL: " << KL << ", curr p: " << p << "curr int: " << old_spectrum[p].getIntensity() << " curr corr: " << current_correction_factor << "\n\n";
             }
-            KL_of_candidates.push_back(KL);
-          }
-        }
+            */
 
-        // else find best fitting peak
-        float best_KL = KL_of_candidates[0];
-        Int best_p = candidates[0];
-        for (Int i = 1; i < KL_of_candidates.size(); ++i)
-        {
-          if (KL_of_candidates[i] < best_KL)
+              if (KL < best_KL)
+              {
+                best_KL = KL;
+                best_p = p;
+              }
+            }
+          }
+
+          if (best_KL > curr_threshold)// if no peak achives an adequate KL
           {
-            best_KL = KL_of_candidates[i];
-            best_p = candidates[i];
+            has_min_isopeaks = (i >= min_isopeaks);
+            break;
+          }
+
+          // model check passed for the best peak in tolerance window
+          extensions.push_back(best_p);
+          total_intensity += old_spectrum[best_p].getIntensity();
+
+          if (annotate_iso_peak_count)
+          {
+            iso_peak_count[current_peak] = i + 1;// with "+ 1" the monoisotopic peak is counted as well
           }
         }
 
-        if (best_KL > curr_threshold)
+        if (has_min_isopeaks)
         {
-          has_min_isopeaks = (i >= min_isopeaks);
-          break;
+          clusters.push_back(extensions);
+          charges_of_extensions.push_back(q);
         }
-
-        // after model checks passed:
-        extensions.push_back(best_p);
-        total_intensity += old_spectrum[best_p].getIntensity();
-
-        if (annotate_iso_peak_count)
+      }// all charges tested, clusters complete
+      // if current_peak is possible monoisotopic peak for a cluster, pick the best of its clusters, annotate peaks with a feature number
+      if (!clusters.empty())
+      {
+        // pick cluster with largest size and highest charge (since all have the same monoisotopic peak)
+        unsigned int best_idx = 0;
+        Size largest_size = 0;
+        int highest_charge = min_charge;
+        for (unsigned int i = 0; i != clusters.size(); ++i)
         {
-          iso_peak_count[current_peak] = i + 1;// with "+ 1" the monoisotopic peak is counted as well
+          if ((clusters[i].size() > largest_size) || ((clusters[i].size() == largest_size) && (charges_of_extensions[i] > highest_charge)))
+          {
+            largest_size = clusters[i].size();
+            highest_charge = charges_of_extensions[i];
+            best_idx = i;
+          }
+        }
+        mono_isotopic_peak[current_peak] = charges_of_extensions[best_idx];
+        for (unsigned int i = 0; i != clusters[best_idx].size(); ++i)
+        {
+          features[clusters[best_idx][i]] = feature_number;
+          // monoisotopic peak intensity is already set above, add up the other intensities here
+          if (add_up_intensity && (i != 0))
+          {
+            mono_iso_peak_intensity[current_peak] += old_spectrum[clusters[best_idx][i]].getIntensity();
+          }
+        }
+        ++feature_number;
+      }
+    }
+
+    //delete[] averagine_check_threshold;
+
+    // apply changes, i.e. select the indices which should survive
+    std::vector<Size> select_idx;
+
+    for (size_t i = 0; i != spec.size(); ++i)
+    {
+
+      Size z = mono_isotopic_peak[i];
+      if (annotate_charge)
+      {
+        spec.getIntegerDataArrays()[charge_index].push_back((int) z);
+      }
+      if (annotate_iso_peak_count)
+      {
+        spec.getIntegerDataArrays()[iso_peak_count_index].push_back((int) iso_peak_count[i]);
+      }
+      if (add_up_intensity)
+      {
+        spec[i].setIntensity(mono_iso_peak_intensity[i]);
+      }
+
+      if (!keep_only_deisotoped)
+      {// keep all unassigned peaks
+        if (features[i] < 0)
+        {
+          select_idx.push_back(i);
+          continue;
         }
       }
 
-      if (has_min_isopeaks)
-      {
-        clusters.push_back(extensions);
-        charges_of_extensions.push_back(q);
-      }
-    } // all charges tested, clusters complete
-    // if current_peak is possible monoisotopic peak for a cluster, pick the best of its clusters, annotate peaks with a feature number
-    if (!clusters.empty())
-    {
-      // pick cluster with largest size and highest charge (since all have the same monoisotopic peak)
-      unsigned int best_idx = 0;
-      Size largest_size = 0;
-      int highest_charge = min_charge;
-      for (unsigned int i = 0; i != clusters.size(); ++i)
-      {
-        if ((clusters[i].size() > largest_size) || ((clusters[i].size() == largest_size) && (charges_of_extensions[i] > highest_charge)))
-        {
-          largest_size = clusters[i].size();
-          highest_charge = charges_of_extensions[i];
-          best_idx = i;
-        }
-      }
-      mono_isotopic_peak[current_peak] = charges_of_extensions[best_idx];
-      for (unsigned int i = 0; i != clusters[best_idx].size(); ++i)
-      {
-        features[clusters[best_idx][i]] = feature_number;
-        // monoisotopic peak intensity is already set above, add up the other intensities here
-        if (add_up_intensity && (i != 0))
-        {
-          mono_iso_peak_intensity[current_peak] += old_spectrum[clusters[best_idx][i]].getIntensity();
-        }
-      }
-      ++feature_number;
-    }
-  }
-
-  // apply changes, i.e. select the indices which should survive
-  std::vector<Size> select_idx;
-
-  for (size_t i = 0; i != spec.size(); ++i)
-  {
-
-    Size z = mono_isotopic_peak[i];
-    if (annotate_charge)
-    {
-      spec.getIntegerDataArrays()[charge_index].push_back((int)z);
-    }
-    if (annotate_iso_peak_count)
-    {
-      spec.getIntegerDataArrays()[iso_peak_count_index].push_back((int)iso_peak_count[i]);
-    }
-    if (add_up_intensity)
-    {
-      spec[i].setIntensity(mono_iso_peak_intensity[i]);
-    }
-
-    if (!keep_only_deisotoped)
-    { // keep all unassigned peaks
-      if (features[i] < 0)
-      {
-        select_idx.push_back(i);
+      if (z == 0)
         continue;
+
+      // convert mono-isotopic peak with charge assigned by deisotoping
+      if (make_single_charged)
+      {
+        spec[i].setMZ(spec[i].getMZ() * z - (z - 1) * Constants::PROTON_MASS_U);
       }
+      select_idx.push_back(i);
     }
 
-    if (z == 0) continue;
-
-    // convert mono-isotopic peak with charge assigned by deisotoping
-    if (make_single_charged)
-    {
-      spec[i].setMZ(spec[i].getMZ() * z - (z - 1) * Constants::PROTON_MASS_U);
-    }
-    select_idx.push_back(i);
+    // properly subsets all datapoints (incl. dataArrays)
+    spec.select(select_idx);
+    spec.sortByPosition();
   }
-
-  // properly subsets all datapoints (incl. dataArrays)
-  spec.select(select_idx);
-  spec.sortByPosition();
+  //std::cout << _CrtDumpMemoryLeaks();
   return;
 }
 
