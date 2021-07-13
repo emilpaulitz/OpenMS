@@ -326,7 +326,7 @@ START_SECTION(BENCHMARKING)
   for (auto it = exp.begin(); it != exp.end(); ++it)
   {
     std::cerr << "Starting new algorithm on spectrum " << (String) count++ << " of " << (String) num_spectra << "\n";
-    Deisotoper::deisotopeWithAveragineModel(*it, 10.0, true);
+    Deisotoper::deisotopeWithAveragineModel(*it, 10.0, true, true, 1, 3, true);
   }
   std::cerr << "storing spectra\n";
   file.store(path + "out_mult_clusters.mzML", exp);
