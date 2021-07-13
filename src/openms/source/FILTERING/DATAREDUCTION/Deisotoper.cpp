@@ -208,9 +208,9 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
           
           // find best fitting peak
           float best_KL = 1.0f;
-          Int best_p;
+          int best_p;
 
-          for (; old_spectrum[p].getMZ() <= expected_mz + tolerance_dalton; ++p)
+          for (; p < old_spectrum.size() && old_spectrum[p].getMZ() <= expected_mz + tolerance_dalton; ++p)
           {
             if (old_spectrum[p].getMZ() >= expected_mz - tolerance_dalton)
             {
@@ -236,13 +236,6 @@ void Deisotoper::deisotopeWithAveragineModel(MSSpectrum& spec,
               {
                 KL += Px * log(Px / distr[extensions.size()].getIntensity());
               }
-              /*
-            // print if there are actually multiple peaks with intensity greater 0 in the tolerance window
-            if (rem_low_intensity && !KL_of_candidates.empty())
-            {
-              std::cout << "First KL: " << KL_of_candidates[0] << ", current KL: " << KL << ", curr p: " << p << "curr int: " << old_spectrum[p].getIntensity() << " curr corr: " << current_correction_factor << "\n\n";
-            }
-            */
 
               if (KL < best_KL)
               {

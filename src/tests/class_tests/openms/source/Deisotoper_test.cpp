@@ -338,21 +338,23 @@ START_SECTION(BENCHMARKING)
 
   MzMLFile file;
   PeakMap exp;
+
   std::cerr << "start loading spectra\n";
   unsigned int count = 0;
   file.load(path + "B1.mzML", exp);
   Size num_spectra = exp.size();
   std::cerr << "finished loading spectra\n";
-  // Generate spectrum deisotoped by new algorithm
+
   for (auto it = exp.begin(); it != exp.end(); ++it)
   {
-    if (count % 50 == 1)
+    if (count % 100 == 1)
     {
       std::cerr << str1 << (String) count << str2 << (String) num_spectra << lb;
     }
-    Deisotoper::deisotopeWithAveragineModel(*it, 10.0, true, true, 1, 3, false);
+    Deisotoper::deisotopeWithAveragineModel(*it, 10.0, true, true, 1, 3, true);
     count++;
   }
+
   file.store(path + "out_best_nearest_peak.mzML", exp);
   TEST_NOT_EQUAL(exp.size(), 0);
 }
